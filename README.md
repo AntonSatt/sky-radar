@@ -48,6 +48,21 @@ wheretheiss.at (ISS) --HTTPS--> (MicroPython)
 - MicroPythons inbyggda `neopixel` sköter lysdioderna. Timingen görs i C och
   PIO, inte i Python.
 
+## Plats
+
+Lampan vet inte själv var den står. Koordinaterna ställs in en gång, precis
+som norr riktas en gång. Standard är eventlokalen, ABF på S:t Persgatan 22B
+i Uppsala (59.862, 17.642). Trafikmätningarna nedan gjordes från Uppsala
+centrum (59.858, 17.639), ca 500 m därifrån.
+
+- **Ingen automatisk positionering.** IP-baserad plats är för grov och blir
+  fel via mobilens hotspot (operatörens IP kan ligga i en annan stad). GPS
+  via mobilen är onödigt krångel för något som står still.
+- **Två decimaler räcker** (ca 1 km). Radarn visar plan på mil avstånd.
+- **Hemadressens koordinater hör inte hemma i repot.** När lampan flyttar
+  hem: lägg platsen i en lokal konfigfil som git ignorerar och checka bara in
+  ett exempel.
+
 ## Datakällor
 
 Gratis, ingen API-nyckel. Alla testade 2026-09-30 och alla tar TLS 1.2 (det
@@ -77,10 +92,29 @@ sektorn mot Arlanda (ca 100-190 grader), så då är 15 nm rätt zoom. När det
 är lugnt (lördag, kväll) är 40-80 nm bättre. Därav zoomknappen. Svaret är
 5-10 KB beroende på antal plan.
 
+**Fällor i riktig data** (sett 2026-09-30), som Pico-koden måste hantera:
+
+- **Plan på marken** har `alt_baro: "ground"` (till exempel parkerade plan
+  på Bromma). Visa inte, eller visa mycket svagt.
+- **`alt_baro` kan vara negativ** för plan i luften. Det är tryckhöjd, som
+  blir fel vid högtryck (ett plan på inflygning till Arlanda visade -250 fot
+  men `alt_geom` 450 fot och 128 knop). Använd `alt_geom` först.
+- **Anropssignalen kan saknas** eller vara `@@@@@@@@`.
+- **Reserven kan också ligga nere.** adsb.lol gav timeout i 10 s en gång och
+  svarade igen några minuter senare. Picon ska ha kort timeout (ca 5 s) och
+  fortsätta visa senast kända plan, som bleknar om datan blir gammal, i
+  stället för att frysa.
+
 Kolla att allt svarar (till exempel på lördag morgon innan avfärd):
 
 ```bash
 ./scripts/kolla-api.sh
+```
+
+Plats och radie går att ändra per körning:
+
+```bash
+LAT=59.86 LON=17.64 RADIE_NM=15 ./scripts/kolla-api.sh
 ```
 
 ## Hårdvara
