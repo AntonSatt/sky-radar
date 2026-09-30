@@ -1,4 +1,4 @@
-# Radarlampan
+# Sky Radar
 
 En LED-ring på bordet som visar alla flygplan runt Uppsala just nu, och som
 kan peka mot rymdstationen ISS. Byggd för Byte Me:s hackathon
@@ -148,7 +148,7 @@ Om svaren inte kommer i tid: bygg med det som finns på plats.
 
 ## Parkerade idéer
 
-Idéer som vägdes mot varandra innan Radarlampan valdes.
+Idéer som vägdes mot varandra innan Sky Radar valdes.
 
 - **Hemliga regeln (Jev):** maskinen har en hemlig regel ("handlar om något
   man kan äta"). Man skriver vad som helst, ringen lyser grönt eller rött med
