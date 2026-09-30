@@ -6,7 +6,8 @@ kan peka mot rymdstationen ISS. Byggd för Byte Me:s hackathon
 utmaningen är att bygga ett program som ryms i 4 MB (lika mycket flash som
 Pico 2 W och ESP32-C3 har).
 
-**Status 2026-09-30:** idé och plan. Ingen kod än.
+**Status 2026-09-30:** kärnan och en terminalprototyp är klara och testade
+på både CPython och MicroPython. Skalet på kortet byggs på plats på lördag.
 
 ## Idén
 
@@ -21,8 +22,10 @@ grejen på fem sekunder.
 - Färgen visar höjd: rött är lågt (på väg in till eller ut från Arlanda),
   blått är marschhöjd.
 - Ett svep går runt ringen som på en riktig radar.
-- Knappen är zoom: 15, 40 och 80 nm, som räckviddsväljaren på en riktig
+- Knappen är zoom: 25, 75 och 150 km, som räckviddsväljaren på en riktig
   radar. Då finns alltid ett läge där det händer något.
+- Allt visas i km och meter. Flyget räknar i nautiska mil och fot, men det
+  säger inte publiken något.
 - Publiken kan kontrollera själv med Flightradar24 på mobilen.
 
 **ISS-läge**
@@ -41,27 +44,83 @@ wheretheiss.at (ISS) --HTTPS--> (MicroPython)
 ```
 
 - Radarn: API:et svarar med riktning (`dir`, grader) och avstånd (`dst`,
-  nm) räknat från punkten vi frågar om, så Picon behöver ingen trigonometri.
-  Riktning delat med 360 gånger antal lysdioder ger vilken lysdiod som tänds.
+  nautiska mil) räknat från punkten vi frågar om, så Picon behöver ingen
+  trigonometri. Riktning delat med 360 gånger antal lysdioder ger vilken
+  lysdiod som tänds.
+- Enheter: nautiska mil och fot från API:et blir km och meter direkt när
+  datan kommer in (`slim_aircraft`). Bara radien i själva anropet är kvar i
+  nautiska mil (1 nm = 1,852 km), eftersom API:et kräver det.
 - ISS: API:et ger bara latitud och longitud, så Picon räknar ut bäringen
   från Uppsala till punkten under ISS (storcirkelformeln, `math` räcker).
 - MicroPythons inbyggda `neopixel` sköter lysdioderna. Timingen görs i C och
   PIO, inte i Python.
 
+## Kod
+
+```
+pico/core.py          all logik, körs oförändrad på laptop och mikrokontroller
+pico/config.py        plats, antal lysdioder, zoom, datakällor
+terminal/radar.py     prototyp: ringen och 8x8-matrisen ritade i terminalen
+tests/test_core.py    tester, körs med både python3 och micropython
+scripts/kolla-api.sh  kollar att datakällorna svarar
+```
+
+Det som ska till mikrokontrollern är `pico/`. Terminalen är ett testverktyg
+och en reservdemo. Kvar till lördag är skalet på kortet: WiFi, hämtning,
+`neopixel` och knappen.
+
+Kör prototypen (bara Pythons standardbibliotek behövs):
+
+```bash
+./terminal/radar.py                                     # live: z = zoom, m = läge, q = avsluta
+./terminal/radar.py --record inspelningar/lordag.jsonl  # spela in samtidigt
+./terminal/radar.py --replay inspelningar/lordag.jsonl  # spela upp utan nät
+./terminal/radar.py --once --mode iss                   # en bild, sedan avsluta
+```
+
+Kör testerna:
+
+```bash
+python3 tests/test_core.py
+micropython tests/test_core.py
+```
+
+Kärnan är testad på MicroPython 1.30 (unix-porten): alla tester går igenom,
+och ett riktigt API-svar för 150 km (15,5 KB, 23 plan) går att tolka med bara
+128 KB heap. Pico 2 W har 520 KB RAM.
+
+Inspelningar är JSON-rader med `t`, `km`, `ac` och `iss`, och git ignorerar
+dem. Samma format kan läggas i flash som reserv.
+
 ## Plats
 
 Lampan vet inte själv var den står. Koordinaterna ställs in en gång, precis
 som norr riktas en gång. Standard är eventlokalen, ABF på S:t Persgatan 22B
-i Uppsala (59.862, 17.642). Trafikmätningarna nedan gjordes från Uppsala
-centrum (59.858, 17.639), ca 500 m därifrån.
+i Uppsala (59.8621567, 17.6421569). Trafikmätningarna nedan gjordes från
+Uppsala centrum (59.858, 17.639), ca 500 m därifrån.
+
+Byt plats utan att räkna fram koordinater själv:
+
+```bash
+./terminal/radar.py --plats                                # frågar var du är
+./terminal/radar.py --plats "Stockholms centralstation"
+./terminal/plats.py "Uppsala domkyrka"                     # bara koordinaterna
+```
+
+`plats.py` slår upp adressen hos OpenStreetMap (Nominatim) och skriver ut
+en rad som `LAT=59.8603 LON=17.6337`, som går att klistra in framför andra
+kommandon, till exempel `./scripts/kolla-api.sh`. Utan terminal: högerklicka
+på platsen i Google Maps, så står koordinaterna överst i menyn och kopieras
+med ett klick.
 
 - **Ingen automatisk positionering.** IP-baserad plats är för grov och blir
   fel via mobilens hotspot (operatörens IP kan ligga i en annan stad). GPS
   via mobilen är onödigt krångel för något som står still.
-- **Två decimaler räcker** (ca 1 km). Radarn visar plan på mil avstånd.
+- **Full precision** (7 decimaler, ca 1 cm) från OpenStreetMap, ingen
+  avrundning.
 - **Hemadressens koordinater hör inte hemma i repot.** När lampan flyttar
-  hem: lägg platsen i en lokal konfigfil som git ignorerar och checka bara in
-  ett exempel.
+  hem: lägg `LAT` och `LON` i `pico/config_local.py`, som git ignorerar och
+  som skriver över `config.py`.
 
 ## Datakällor
 
@@ -78,18 +137,19 @@ Picons TLS klarar).
 Villkoret om kreditering löses med en lapp bredvid lampan: "Flygdata: adsb.fi".
 
 **Hur mycket trafik?** Mätt runt Uppsala centrum en onsdag (antal plan,
-inom parentes hur många av dem som var under 10 000 fot):
+inom parentes hur många av dem som var under 3 000 m). Radierna är de
+nautiska mil vi frågade API:et om:
 
 | Radie | 16:08 | 16:31 |
 |---|---|---|
-| 15 nm (ca 28 km) | - | 4 (4) |
-| 25 nm (ca 46 km) | 4 (3) | 7 (7) |
-| 40 nm (ca 74 km) | 7 (3) | 15 (10) |
-| 60 nm (ca 110 km) | 10 (3) | 18 (11) |
+| 28 km (15 nm) | - | 4 (4) |
+| 46 km (25 nm) | 4 (3) | 7 (7) |
+| 74 km (40 nm) | 7 (3) | 15 (10) |
+| 111 km (60 nm) | 10 (3) | 18 (11) |
 
 Trafiken svänger mycket på en halvtimme. Vid rusning klumpar sig planen i
-sektorn mot Arlanda (ca 100-190 grader), så då är 15 nm rätt zoom. När det
-är lugnt (lördag, kväll) är 40-80 nm bättre. Därav zoomknappen. Svaret är
+sektorn mot Arlanda (ca 100-190 grader), så då är 25 km rätt zoom. När det
+är lugnt (lördag, kväll) är 75-150 km bättre. Därav zoomknappen. Svaret är
 5-10 KB beroende på antal plan.
 
 **Fällor i riktig data** (sett 2026-09-30), som Pico-koden måste hantera:
@@ -98,7 +158,7 @@ sektorn mot Arlanda (ca 100-190 grader), så då är 15 nm rätt zoom. När det
   på Bromma). Visa inte, eller visa mycket svagt.
 - **`alt_baro` kan vara negativ** för plan i luften. Det är tryckhöjd, som
   blir fel vid högtryck (ett plan på inflygning till Arlanda visade -250 fot
-  men `alt_geom` 450 fot och 128 knop). Använd `alt_geom` först.
+  men `alt_geom` 450 fot, ca 140 m, och 128 knop). Använd `alt_geom` först.
 - **Anropssignalen kan saknas** eller vara `@@@@@@@@`.
 - **Reserven kan också ligga nere.** adsb.lol gav timeout i 10 s en gång och
   svarade igen några minuter senare. Picon ska ha kort timeout (ca 5 s) och
@@ -114,32 +174,39 @@ Kolla att allt svarar (till exempel på lördag morgon innan avfärd):
 Plats och radie går att ändra per körning:
 
 ```bash
-LAT=59.86 LON=17.64 RADIE_NM=15 ./scripts/kolla-api.sh
+LAT=59.8603 LON=17.6337 RADIE_KM=25 ./scripts/kolla-api.sh
 ```
 
 ## Hårdvara
 
-Grundplanen kräver ingen lödning.
+Svar från arrangörerna 2026-09-30:
 
-- **Pico 2 W med förlödda stift.** Arrangörerna tar med 12 stycken.
-- **Adresserbara RGB-lysdioder** (WS2812), arrangörernas. Är det en slinga:
-  tejpa den i en cirkel på en kartong, den blir större och tydligare än en
-  ring.
-- **En knapp** för zoom och lägesbyte (valfri).
-- **Mobilen som hotspot** om lokalens WiFi är eduroam eller har
-  inloggningssida. Pico 2 W klarar bara 2,4 GHz: Settings > Network &
-  internet > Hotspot & tethering > Wi-Fi hotspot > Speed & compatibility >
-  2.4 GHz, säkerhet WPA2-Personal.
+- **Lysdioder:** en slinga, många stora ringar, några små och en 8x8-matris.
+  Antalet ställs in med `N_LEDS` i `pico/config.py`. Matrisen kan visa en
+  riktig 2D-radar (`radar_grid` i kärnan).
+- **Picorna har inte förlödda stift,** men det finns korta stiftlister som
+  passar ESP32-C3. Kärnan är ren Python och fungerar på båda korten.
+- **WiFi:** en ABF-lokal, troligen inte eduroam. De tar kanske med mobilt
+  WiFi.
+- **Molndata är ok:** "Man får nog göra vad man vill så länge man gör något!"
 
-**Koppling:** tre sladdar. 5V (VBUS), GND och data till valfri GPIO.
+Lödning blir alltså troligen aktuellt på plats: stiftlist på kortet och tre
+sladdar på ringen. Det är ett klassiskt första lödjobb.
+
+**WiFi-reserv:** mobilen som hotspot om lokalens WiFi har inloggningssida.
+Korten klarar bara 2,4 GHz: Settings > Network & internet > Hotspot &
+tethering > Wi-Fi hotspot > Speed & compatibility > 2.4 GHz, säkerhet
+WPA2-Personal.
+
+**Koppling:** tre sladdar. 5V (VBUS), GND och data till valfri GPIO. En knapp
+för zoom och lägesbyte är valfri.
+
+**Inställningar på plats** (`pico/config.py`): `N_LEDS` efter ringens storlek,
+`LED_NORTH` för lysdioden som pekar mot norr och `CLOCKWISE` för vilket håll
+numren går. För matrisen `GRID_SERPENTINE` om den är kopplad i sicksack.
 
 **Ström:** 24 lysdioder på fullt vitt drar ca 1,4 A, USB ger ca 0,5 A.
-Begränsa ljusstyrkan till ca 20 % i koden.
-
-**Egen ring (valfritt):** WS2812 5050 med 24 lysdioder och 66 mm diameter
-kostar runt 128 kr. Den kommer med lödpunkter utan sladdar, så den kräver
-lödning. Texten "endast för AVR" i sådana annonser är kopierad från
-Adafruit och gäller inte Pico.
+Begränsa ljusstyrkan med `MAX_BRIGHTNESS` (0,2 som standard).
 
 **Presentation:**
 
@@ -151,34 +218,37 @@ Adafruit och gäller inte Pico.
 
 ## Robusthet
 
-- Hämta radardata var 3-5 sekund och ISS var 10:e sekund, långt under
+- Hämta radardata var 4:e sekund och ISS var 10:e sekund, långt under
   gränserna.
-- Reserv-URL:er i koden. Svarar inte förstavalet byter Picon källa.
-- **Inspelat läge:** spara några minuter riktig trafik i flash (några tiotals
-  kB). Dör nätet i lokalen spelar lampan upp inspelningen, så demon lever.
+- Reserv-URL:er. Svarar inte förstavalet byter kortet källa.
+- Hämtningen får aldrig frysa animationen. Gammal data bleknar och svepet
+  blir rött, så det syns när nätet strular.
+- **Inspelat läge:** spela in några minuter riktig trafik (`--record`). Dör
+  nätet i lokalen spelar lampan upp inspelningen, så demon lever.
 - Reserv om all hårdvara strular: terminalprototypen på laptopskärmen är i
   sig en demo.
 
 ## Plan
 
-1. **Terminalprototyp** på laptopen: Python som ritar en ASCII-ring live,
-   med radarläge, ISS-läge, zoom, reserv-URL:er och inspelat läge. Skriven
-   så att logiken kan flyttas rakt in i MicroPython.
-2. **Före lördag, om hårdvara finns:** testa WiFi, HTTPS och LED på en Pico.
-   Mät hur lång tid TLS-handskakningen tar på Picon.
-3. **Lördag:** flytta logiken till Picon, koppla in lysdioderna, bygg
-   kompassrosen, visa upp.
+1. **Klart 2026-09-30:** kärnan, konfigurationen, tester och
+   terminalprototypen.
+2. **Före lördag (valfritt):** spela in lite trafik som reserv.
+3. **Lördag:** löd stiftlist och sladdar, skriv skalet på kortet (WiFi,
+   hämtning, `neopixel`, knapp), ställ in ringen i `config.py`, bygg
+   kompassrosen och visa upp.
 
-## Öppna frågor
+## Fler rymdlägen (idéer)
 
-Skickade till arrangörerna 2026-09-30:
+Alla gratis och kontrollerade 2026-09-30:
 
-- Är lysdioderna slingor eller ringar, och har de sladdar eller kontakter?
-- Har Picorna förlödda stift?
-- Vilket WiFi finns i lokalen, vanligt lösenord eller eduroam?
-- Räknas det i 4 MB-utmaningen om programmet hämtar data från nätet?
-
-Om svaren inte kommer i tid: bygg med det som finns på plats.
+- **ISS i sol eller skugga:** redan med. Ringen är vit när ISS är i solljus
+  och blå i jordens skugga (`visibility` från wheretheiss.at).
+- **Hur många som är i rymden just nu:** `http://api.open-notify.org/astros.json`
+  (12 personer på ISS och Tiangong). En lysdiod per person.
+- **Norrskensläge:** NOAA:s Kp-index,
+  `https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json`
+  (4,6 KB). Grön glöd när det finns chans till norrsken över Uppsala, grovt
+  från Kp 4-5.
 
 ## Parkerade idéer
 

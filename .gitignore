@@ -1,0 +1,8 @@
+# Lokala inställningar och hemligheter (koordinater hemma, WiFi-lösenord)
+pico/config_local.py
+pico/secrets.py
+
+# Inspelad flygdata, skapas lokalt med --record
+inspelningar/
+
+__pycache__/
