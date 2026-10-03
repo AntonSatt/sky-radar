@@ -93,6 +93,11 @@ def test_radar_frame():
     # Gammal data: svepet blir rött
     frame = core.radar_frame([], 24, 40, sweep=0, age_s=60)
     assert frame[0] == core.SWEEP_STALE_COLOR
+    # Norrpricken lyser där svepet inte är, och följer LED_NORTH
+    frame = core.radar_frame([], 24, 40, sweep=180, age_s=1)
+    assert frame[0] == core.NORTH_COLOR
+    frame = core.radar_frame([], 24, 40, sweep=180, age_s=1, north=6)
+    assert frame[6] == core.NORTH_COLOR and frame[0] == core.BLACK
     frame = core.radar_frame([], 24, 40, sweep=0, age_s=None)
     assert frame[0] == core.SWEEP_STALE_COLOR
 
@@ -132,7 +137,8 @@ def test_iss_frame():
     far = (-34.7, -114.8, True)
     frame = core.iss_frame(far, VENUE[0], VENUE[1], 24, t=0, age_s=1)
     lit = [i for i in range(24) if frame[i] != core.BLACK]
-    assert len(lit) == 3
+    # ISS-pricken med två grannar, plus norrpricken
+    assert len(lit) == 4 and frame[0] == core.NORTH_COLOR
     bearing, dist, overhead = core.iss_info(far, VENUE[0], VENUE[1])
     assert not overhead and dist > 10000
     assert core.led_index(bearing, 24) in lit

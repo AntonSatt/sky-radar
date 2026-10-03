@@ -42,6 +42,10 @@ ISS_HORIZON_KM = 2250
 ISS_SUNLIT_COLOR = (255, 255, 255)
 ISS_SHADOW_COLOR = (40, 60, 255)
 
+# Svag vit prick som alltid visar norr, så att publiken förstår ringen.
+# Planen och svepet ritas över den. None stänger av den.
+NORTH_COLOR = (40, 40, 40)
+
 BLACK = (0, 0, 0)
 
 
@@ -140,6 +144,12 @@ def led_index(bearing, n, north=0, clockwise=True):
 
 # --- Färger --------------------------------------------------------------
 
+def mark_north(frame, north):
+    """Tänd norrpricken om lysdioden är släckt."""
+    if NORTH_COLOR is not None and frame[north] == BLACK:
+        frame[north] = NORTH_COLOR
+
+
 def scale(color, factor):
     return (int(color[0] * factor), int(color[1] * factor), int(color[2] * factor))
 
@@ -198,6 +208,8 @@ def radar_frame(planes, n, range_km, sweep, age_s, north=0, clockwise=True):
         if brightness > level[i]:
             level[i] = brightness
             frame[i] = scale(altitude_color(alt), brightness)
+
+    mark_north(frame, north % n)
 
     sweep_color = SWEEP_COLOR
     if age_s is None or age_s > STALE_S:
@@ -269,4 +281,5 @@ def iss_frame(iss, lat, lon, n, t, age_s, north=0, clockwise=True):
     for side in (-1, 1):
         j = (i + side) % n
         frame[j] = scale(color, 0.25 * near * fade)
+    mark_north(frame, north % n)
     return frame
