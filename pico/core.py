@@ -221,12 +221,32 @@ def radar_frame(planes, n, range_km, sweep, age_s, north=0, clockwise=True):
     return frame
 
 
-def radar_grid(planes, w, h, range_km, age_s, serpentine=False):
+# Svepet på matrisen är en kil som släpar så här många grader efter.
+GRID_SWEEP_DEG = 45
+_grid_angles = {}
+
+
+def grid_angles(w, h):
+    """Riktningen från mitten till varje pixel, i grader medurs från norr.
+    Rad för rad uppifrån, utan sicksack. Räknas en gång per storlek."""
+    key = (w, h)
+    if key not in _grid_angles:
+        cx = (w - 1) / 2
+        cy = (h - 1) / 2
+        _grid_angles[key] = [
+            (math.atan2(x - cx, cy - y) / RAD) % 360
+            for y in range(h) for x in range(w)
+        ]
+    return _grid_angles[key]
+
+
+def radar_grid(planes, w, h, range_km, age_s, serpentine=False, sweep=None):
     """2D-radar för en matris, till exempel 8x8. Mitten är lampan, upp är norr.
 
     Returnerar w*h färger rad för rad uppifrån, i den ordning lysdioderna är
     kopplade. serpentine: matrisen är kopplad i sicksack (varannan rad
-    baklänges), vanligt på flexibla matriser.
+    baklänges), vanligt på flexibla matriser. sweep: svepets riktning i
+    grader, eller None för en matris utan svep.
     """
     grid = [BLACK] * (w * h)
     level = [0.0] * (w * h)
@@ -244,10 +264,29 @@ def radar_grid(planes, w, h, range_km, age_s, serpentine=False):
         if serpentine and y % 2 == 1:
             x = w - 1 - x
         brightness = (1.0 - 0.5 * r) * fade
+        if sweep is not None:
+            behind = (sweep - bearing) % 360
+            brightness *= 0.35 + 0.65 * (1 - behind / 360) ** 2
         i = y * w + x
         if brightness > level[i]:
             level[i] = brightness
             grid[i] = scale(altitude_color(alt), brightness)
+
+    if sweep is not None:
+        sweep_color = SWEEP_COLOR
+        if age_s is None or age_s > STALE_S:
+            sweep_color = SWEEP_STALE_COLOR
+        angles = grid_angles(w, h)
+        for j in range(w * h):
+            behind = (sweep - angles[j]) % 360
+            if behind >= GRID_SWEEP_DEG:
+                continue
+            y, x = divmod(j, w)
+            if serpentine and y % 2 == 1:
+                x = w - 1 - x
+            i = y * w + x
+            if level[i] == 0:
+                grid[i] = scale(sweep_color, 1 - behind / GRID_SWEEP_DEG)
     return grid
 
 
@@ -283,3 +322,60 @@ def iss_frame(iss, lat, lon, n, t, age_s, north=0, clockwise=True):
         frame[j] = scale(color, 0.25 * near * fade)
     mark_north(frame, north % n)
     return frame
+
+
+# --- Skärmen (OLED, 16 tecken x 8 rader) ---------------------------------
+
+COMPASS = ("N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+           "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW")
+
+
+def compass_point(bearing):
+    """Väderstreck för en riktning, 16 streck: 157 -> "SSE"."""
+    return COMPASS[int((bearing % 360) / 22.5 + 0.5) % 16]
+
+
+def link_text(age_s):
+    if age_s is None:
+        return "LINK --"
+    if age_s > STALE_S:
+        return "LINK LOST %ds" % int(age_s)
+    return "LINK OK"
+
+
+def deck_lines(mode, planes, target, range_km, age_s, iss=None, lat=0.0, lon=0.0):
+    """Raderna på decket skärm. Ren ASCII, framebufs typsnitt saknar å, ä och ö.
+
+    planes: alla plan, närmast först. target: index bland planen inom
+    räckvidd, det plan som är valt med ratten. Rad 0 ritas inverterad.
+    """
+    if mode == "iss":
+        lines = ["SKY DECK    ISS", ""]
+        if iss is None:
+            lines.append("NO FIX")
+        else:
+            bearing, dist, overhead = iss_info(iss, lat, lon)
+            lines.append("DST %d km" % int(dist))
+            lines.append("BRG %03d %s" % (int(bearing), compass_point(bearing)))
+            lines.append({True: "SUNLIT", False: "SHADOW", None: ""}[iss[2]])
+            lines.append("** OVERHEAD **" if overhead else "")
+        while len(lines) < 7:
+            lines.append("")
+        lines.append(link_text(age_s))
+        return lines
+
+    inside = [p for p in planes if p[2] <= range_km]
+    lines = ["SKY DECK  RADAR", "RNG %dkm" % range_km]
+    if not inside:
+        lines += ["", "NO TARGETS", "", "", ""]
+    else:
+        target = target % len(inside)
+        signal, bearing, dist, alt = inside[target]
+        lines[1] += "  %d/%d" % (target + 1, len(inside))
+        lines.append("")
+        lines.append("> " + (signal or "UNKNOWN"))
+        lines.append("ALT " + ("?" if alt is None else "%d m" % alt))
+        lines.append("DST %.1f km" % dist)
+        lines.append("BRG %03d %s" % (int(bearing), compass_point(bearing)))
+    lines.append(link_text(age_s))
+    return lines

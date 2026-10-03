@@ -133,6 +133,39 @@ def test_parse_iss():
     assert core.parse_iss(notify) == (-34.7, -114.8, None)
 
 
+def test_radar_grid_sweep():
+    # Svepet rakt norrut: pixeln strax väster om mitten i översta raden ligger
+    # just bakom svepet och lyser, den strax öster om ligger före och är släckt
+    grid = core.radar_grid([], 8, 8, 40, age_s=1, sweep=0)
+    assert grid[3] != core.BLACK and grid[4] == core.BLACK
+    # Utan svep är en tom matris helt släckt
+    assert core.radar_grid([], 8, 8, 40, age_s=1) == [core.BLACK] * 64
+
+
+def test_compass_point():
+    assert core.compass_point(0) == "N"
+    assert core.compass_point(157) == "SSE"
+    assert core.compass_point(355) == "N"
+    assert core.compass_point(270) == "W"
+
+
+def test_deck_lines():
+    planes = [("SAS1426", 157, 18.4, 1200), ("", 90, 40, None), ("FAR", 0, 140, 9000)]
+    lines = core.deck_lines("radar", planes, 0, 75, age_s=2)
+    assert len(lines) == 8 and all(len(l) <= 16 for l in lines)
+    assert lines[1] == "RNG 75km  1/2"
+    assert lines[3] == "> SAS1426"
+    assert lines[6] == "BRG 157 SSE"
+    assert lines[7] == "LINK OK"
+    # Ratten går runt: index 3 av 2 plan blir det andra, utan anropssignal
+    lines = core.deck_lines("radar", planes, 3, 75, age_s=60)
+    assert lines[3] == "> UNKNOWN" and lines[4] == "ALT ?"
+    assert lines[7].startswith("LINK LOST")
+    assert core.deck_lines("radar", [], 0, 25, None)[3] == "NO TARGETS"
+    lines = core.deck_lines("iss", [], 0, 75, 1, (59.3, 18.1, True), VENUE[0], VENUE[1])
+    assert len(lines) == 8 and "OVERHEAD" in lines[5] and lines[4] == "SUNLIT"
+
+
 def test_iss_frame():
     far = (-34.7, -114.8, True)
     frame = core.iss_frame(far, VENUE[0], VENUE[1], 24, t=0, age_s=1)

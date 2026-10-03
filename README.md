@@ -24,8 +24,9 @@ grejen på fem sekunder.
 - Färgen visar höjd: rött är lågt (på väg in till eller ut från Arlanda),
   blått är marschhöjd.
 - Ett svep går runt ringen som på en riktig radar.
-- Knappen är zoom: 25, 75 och 150 km, som räckviddsväljaren på en riktig
-  radar. Då finns alltid ett läge där det händer något.
+- Knappen är zoom: 25, 50 och 75 km, som räckviddsväljaren på en riktig
+  radar. Då finns alltid ett läge där det händer något. 150 km fick inte
+  plats i minnet på ESP32-C3 när skärmen också används.
 - Allt visas i km och meter. Flyget räknar i nautiska mil och fot, men det
   säger inte publiken något.
 - Publiken kan kontrollera själv med Flightradar24 på mobilen.
@@ -62,11 +63,14 @@ wheretheiss.at (ISS) --HTTPS--> (MicroPython)
 ```
 pico/core.py          all logik, körs oförändrad på laptop och mikrokontroller
 pico/config.py        plats, stift, antal lysdioder, zoom, datakällor
-pico/main.py          skalet på kortet: WiFi, hämtning, lysdioder, knapp
+pico/main.py          skalet på kortet: WiFi, hämtning, lysdioder, skärm, ratt
+pico/oled.py          drivrutin för 128x64-skärmen (SSD1306 eller SH1106)
+pico/boards/          en profil per kort: ring.py (ring + skärm), matris.py
 terminal/radar.py     prototyp: ringen och 8x8-matrisen ritade i terminalen
 tests/test_core.py    tester, körs med både python3 och micropython
 scripts/kolla-api.sh  kollar att datakällorna svarar
-scripts/till-kortet.sh  lägger koden på kortet och kör den
+scripts/till-kortet.sh  lägger koden på kortet och kör den (profil som argument)
+scripts/wifi.sh       lägger till ett WiFi-nät, korten tar det första som syns
 ```
 
 Det som ska till mikrokontrollern är `pico/`. Terminalen är ett testverktyg
@@ -93,6 +97,13 @@ esptool --chip esp32c3 write-flash 0 "$FIRMWARE"
 ```
 
 Koppling på ESP32-C3-Zero: ringens DI till GPIO3, 5V till 5V, GND till GND.
+OLED-modulen med ratt: VCC till 3V3 (inte 5V), GND, SDA till GPIO4, SCL till
+GPIO5, PSH till GPIO6, TRA till GPIO7, TRB till GPIO0, BAK till GPIO1 och
+CON till GPIO2. Skärmen är en SH1106.
+
+Matrisenheten är en egen ESP32-C3 SuperMini som sitter fastlödd på en
+8x8-matris (DIN på GPIO4) och kör samma kod: `./scripts/till-kortet.sh matris`.
+Korten klarar bara 2,4 GHz, så en mobil-hotspot måste stå på 2,4 GHz.
 
 Kör prototypen (bara Pythons standardbibliotek behövs):
 
