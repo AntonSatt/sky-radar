@@ -6,6 +6,12 @@ PLACE = "ABF, S:t Persgatan 22B, Uppsala"
 LAT = 59.8621567
 LON = 17.6421569
 
+# Kortet. Siffrorna är GPIO-nummer, standard är ESP32-C3-Zero (Waveshare).
+LED_PIN = 3            # ringens DIN (inte DOUT)
+STATUS_LED_PIN = 10    # kortets inbyggda RGB-lysdiod, None om den saknas
+BUTTON_PIN = 9         # BOOT-knappen: kort tryck = zoom, långt tryck = läge
+WIFI_TXPOWER = None    # sätt till 8.5 om WiFi inte ansluter (känt C3-problem)
+
 # Ringen. Arrangörerna har ringar i flera storlekar, ändra N_LEDS på plats.
 N_LEDS = 24
 LED_NORTH = 0          # lysdioden som pekar mot norr

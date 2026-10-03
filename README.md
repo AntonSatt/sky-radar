@@ -6,8 +6,10 @@ kan peka mot rymdstationen ISS. Byggd för Byte Me:s hackathon
 utmaningen är att bygga ett program som ryms i 4 MB (lika mycket flash som
 Pico 2 W och ESP32-C3 har).
 
-**Status 2026-09-30:** kärnan och en terminalprototyp är klara och testade
-på både CPython och MicroPython. Skalet på kortet byggs på plats på lördag.
+**Status 2026-10-03:** radarn går på en ESP32-C3-Zero med en 24-ring på
+hackathonet: WiFi, hämtning i egen tråd, ringen och BOOT-knappen för zoom
+och läge. Kärnan och terminalprototypen är testade på både CPython och
+MicroPython.
 
 ## Idén
 
@@ -59,15 +61,38 @@ wheretheiss.at (ISS) --HTTPS--> (MicroPython)
 
 ```
 pico/core.py          all logik, körs oförändrad på laptop och mikrokontroller
-pico/config.py        plats, antal lysdioder, zoom, datakällor
+pico/config.py        plats, stift, antal lysdioder, zoom, datakällor
+pico/main.py          skalet på kortet: WiFi, hämtning, lysdioder, knapp
 terminal/radar.py     prototyp: ringen och 8x8-matrisen ritade i terminalen
 tests/test_core.py    tester, körs med både python3 och micropython
 scripts/kolla-api.sh  kollar att datakällorna svarar
+scripts/till-kortet.sh  lägger koden på kortet och kör den
 ```
 
 Det som ska till mikrokontrollern är `pico/`. Terminalen är ett testverktyg
-och en reservdemo. Kvar till lördag är skalet på kortet: WiFi, hämtning,
-`neopixel` och knappen.
+och en reservdemo.
+
+Till kortet (MicroPython måste finnas på det, se nedan):
+
+```bash
+./scripts/till-kortet.sh   # frågar efter WiFi första gången, Ctrl-C stoppar
+```
+
+WiFi-uppgifterna hamnar i `pico/secrets.py`, som git ignorerar. `main.py`
+ligger kvar på kortet och startar själv när kortet får ström. Hämtningen går
+i en egen tråd, eftersom TLS tar ca 2 s per anrop på C3:an och ringen annars
+står still under tiden.
+
+MicroPython på en ESP32-C3 (firmware från micropython.org/download,
+`ESP32_GENERIC_C3`, testat med 1.29.0):
+
+```bash
+FIRMWARE=~/Downloads/ESP32_GENERIC_C3-20260824-v1.29.0.bin
+esptool --chip esp32c3 erase-flash
+esptool --chip esp32c3 write-flash 0 "$FIRMWARE"
+```
+
+Koppling på ESP32-C3-Zero: ringens DI till GPIO3, 5V till 5V, GND till GND.
 
 Kör prototypen (bara Pythons standardbibliotek behövs):
 
