@@ -63,6 +63,9 @@ for stale data and blue for no WiFi.
 
 ## The screen
 
+<img src="images/sky-deck-screen.jpg" width="360"
+     alt="The OLED module showing SKY DECK RADAR: range 75 km, aircraft 1 of 7, callsign CCA911, altitude 739 m, distance 22.6 km, bearing 116 ESE, LINK OK.">
+
 ```
 SKY DECK  RADAR
 RNG 75km  1/5

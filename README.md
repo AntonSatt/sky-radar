@@ -11,10 +11,12 @@ the challenge was to build something that fits in 4 MB of flash. On the day
 it grew a screen and a knob and was demoed as **Sky Deck**.
 
 <p align="center">
-  <img src="docs/images/sky-deck-screen.jpg" width="420"
-       alt="The OLED module with a rotary knob showing SKY DECK RADAR: range 75 km, aircraft 1 of 7, callsign CCA911, altitude 739 m, distance 22.6 km, bearing 116 ESE, LINK OK. The ESP32-C3 board sits on a breadboard behind it.">
+  <img src="docs/images/sky-radar-ring.gif" height="360"
+       alt="A 24-LED ring around a glass of water on a breadboard, wired to an ESP32-C3. A few LEDs glow white and orange for aircraft and a green sweep passes along the bottom of the ring.">
+  <img src="docs/images/sky-deck-knob.gif" height="360"
+       alt="A thumb turns the knob on the OLED module and the screen steps through aircraft in range: DLH2PM at 1204 m and 31.5 km, FIN927 at 1006 m and 31.9 km, SEGEE at 1798 m and 47.5 km.">
 </p>
-<p align="center"><sub>The screen unit at the hackathon, tracking an Air China flight 22.6 km away.</sub></p>
+<p align="center"><sub>Live at the hackathon: the ring with real traffic and its radar sweep, and the knob stepping through the aircraft in range.</sub></p>
 
 ## What it does
 
