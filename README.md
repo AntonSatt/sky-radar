@@ -1,94 +1,156 @@
 # Sky Radar
 
-En LED-ring på bordet som visar alla flygplan runt Uppsala just nu, och som
-kan peka mot rymdstationen ISS. Byggd för Byte Me:s hackathon
-[Build 4 Cyberdeck](https://luma.com/6ylas0ll) i Uppsala 2026-10-03, där
-utmaningen är att bygga ett program som ryms i 4 MB (lika mycket flash som
-Pico 2 W och ESP32-C3 har).
+A ring of 24 LEDs that shows every aircraft around you right now, each one
+a dot in the direction the plane actually is. Flip a switch and the ring
+points at the International Space Station instead.
 
-**Status 2026-10-03:** radarn går på en ESP32-C3-Zero med en 24-ring på
-hackathonet: WiFi, hämtning i egen tråd, ringen och BOOT-knappen för zoom
-och läge. Kärnan och terminalprototypen är testade på både CPython och
-MicroPython.
+It runs in MicroPython on a tiny ESP32-C3 board, pulls live ADS-B data over
+WiFi and needs no API keys. Built in an afternoon at Byte Me's hackathon
+[Build 4 Cyberdeck](https://luma.com/6ylas0ll) in Uppsala (2026-10-03), where
+the challenge was to build something that fits in 4 MB of flash. On the day
+it grew a screen and a knob and was demoed as **Sky Deck**.
 
-## Idén
+<p align="center">
+  <img src="docs/images/sky-deck-screen.jpg" width="420"
+       alt="The OLED module with a rotary knob showing SKY DECK RADAR: range 75 km, aircraft 1 of 7, callsign CCA911, altitude 739 m, distance 22.6 km, bearing 116 ESE, LINK OK. The ESP32-C3 board sits on a breadboard behind it.">
+</p>
+<p align="center"><sub>The screen unit at the hackathon, tracking an Air China flight 22.6 km away.</sub></p>
 
-Picon är hjärnan i något fysiskt som är kopplat till något mycket större:
-all flygtrafik runt Arlanda. Den som aldrig har programmerat ska fatta
-grejen på fem sekunder.
+## What it does
 
-**Radarläge**
+**Radar mode**
 
-- Ringen är en kompass. Varje plan inom räckvidd blir en prick i den
-  riktning planet faktiskt är.
-- Färgen visar höjd: rött är lågt (på väg in till eller ut från Arlanda),
-  blått är marschhöjd.
-- Ett svep går runt ringen som på en riktig radar.
-- Knappen är zoom: 25, 50 och 75 km, som räckviddsväljaren på en riktig
-  radar. Då finns alltid ett läge där det händer något. 150 km fick inte
-  plats i minnet på ESP32-C3 när skärmen också används.
-- Allt visas i km och meter. Flyget räknar i nautiska mil och fot, men det
-  säger inte publiken något.
-- Publiken kan kontrollera själv med Flightradar24 på mobilen.
+- The ring is a compass. Every aircraft within range lights the LED that
+  points towards it, brighter when it is closer.
+- Colour is altitude: red is low (taking off or landing), yellow and green
+  in between, blue is cruising altitude. A dim white dot always marks north.
+- A green sweep goes round every 3 seconds, like a real radar screen. It
+  turns red and the dots fade if no fresh data has arrived for 20 seconds.
+- Zoom between 25, 50 and 75 km, so there is always something to see:
+  25 km when the airport is busy, 75 km on a quiet evening.
+- Everything is in km and metres. The APIs speak nautical miles and feet,
+  which mean nothing to most people watching.
 
-**ISS-läge**
+**ISS mode**
 
-- Ringen pekar mot rymdstationen, som varvar jorden på ca 90 minuter. Under
-  en eftermiddag syns den vandra runt ringen.
-- När den passerar över Sverige blinkar hela ringen.
+- One LED points at the space station. It circles the Earth in about 90
+  minutes, so over an afternoon the dot wanders round the ring.
+- White when the ISS is in sunlight, blue when it is in the Earth's shadow.
+- When it is above your horizon (within about 2,250 km) the whole ring
+  pulses.
 
-## Så funkar det
+**Optional extras**
 
-```
-adsb.fi (flygplan)  --HTTPS-->  Pico 2 W      --data-->  LED-ring
-wheretheiss.at (ISS) --HTTPS--> (MicroPython)
-                                    ^
-                                knapp: zoom / läge
-```
+- **Screen and knob:** a 128x64 OLED module with a rotary encoder. Turn the
+  knob to step through the aircraft (the selected one blinks white on the
+  ring) and the screen shows its callsign, altitude, distance and bearing.
+- **8x8 matrix:** a second unit that draws the radar seen from above, so
+  you get distance as well as direction.
 
-- Radarn: API:et svarar med riktning (`dir`, grader) och avstånd (`dst`,
-  nautiska mil) räknat från punkten vi frågar om, så Picon behöver ingen
-  trigonometri. Riktning delat med 360 gånger antal lysdioder ger vilken
-  lysdiod som tänds.
-- Enheter: nautiska mil och fot från API:et blir km och meter direkt när
-  datan kommer in (`slim_aircraft`). Bara radien i själva anropet är kvar i
-  nautiska mil (1 nm = 1,852 km), eftersom API:et kräver det.
-- ISS: API:et ger bara latitud och longitud, så Picon räknar ut bäringen
-  från Uppsala till punkten under ISS (storcirkelformeln, `math` räcker).
-- MicroPythons inbyggda `neopixel` sköter lysdioderna. Timingen görs i C och
-  PIO, inte i Python.
-
-## Kod
+A frame from the terminal prototype, which runs the same code without any
+hardware (the interface text is in Swedish, "plan" means aircraft):
 
 ```
-pico/core.py          all logik, körs oförändrad på laptop och mikrokontroller
-pico/config.py        plats, stift, antal lysdioder, zoom, datakällor
-pico/main.py          skalet på kortet: WiFi, hämtning, lysdioder, skärm, ratt
-pico/oled.py          drivrutin för 128x64-skärmen (SSD1306 eller SH1106)
-pico/boards/          en profil per kort: ring.py (ring + skärm), matris.py
-terminal/radar.py     prototyp: ringen och 8x8-matrisen ritade i terminalen
-tests/test_core.py    tester, körs med både python3 och micropython
-scripts/kolla-api.sh  kollar att datakällorna svarar
-scripts/till-kortet.sh  lägger koden på kortet och kör den (profil som argument)
-scripts/wifi.sh       lägger till ett WiFi-nät, korten tar det första som syns
+                     N                        RADAR  75 km  15 plan
+                                              källa: opendata.adsb.fi  uppdaterad 1 s sedan
+                 ·   ●   ·
+            ●                 ·               SAS51D    2 260 m  250°   10,3 km
+         ●                       ·            RYR8QX      670 m  122°   23,4 km
+                                              SWR2YB      560 m  153°   31,6 km
+      ●                             ·         FIN1BA   12 630 m  199°   31,7 km
+                                              NJE473G   3 110 m  177°   36,8 km
+     ·                               ·        SAS1131   2 590 m  187°   51,5 km
+                   RADAR                      SAS495    6 870 m  245°   54,4 km
+V   ·              75 km              ·   Ö   NSZ2633   2 740 m  155°   55,5 km
+                                              FUU231A     680 m  165°   55,9 km
+     ●                               ·        DFL5980     270 m  142°   59,8 km
+                                              ... och 5 till
+      ●                             ●
+                                              8x8-matris:
+         ●                       ●            · · · · · · · ·
+            ●                 ●               · · · · · · · ·
+                 ●   ●   ●     ARN            · · · · · · · ·
+                                              · · · · · · · ·
+                     S                        · · · ● ● · · ·
+                                              ● ● · ● ● · · ·
+                                              · ● ● ● ● ● · ·
+                                              · · ● · · · · ·
 ```
 
-Det som ska till mikrokontrollern är `pico/`. Terminalen är ett testverktyg
-och en reservdemo.
+## How it works
 
-Till kortet (MicroPython måste finnas på det, se nedan):
+```
+adsb.fi / adsb.lol  --HTTPS-->  ESP32-C3       -->  LED ring
+wheretheiss.at      --HTTPS-->  (MicroPython)  -->  OLED, 8x8 matrix
+                                     ^
+                          knob and buttons: select, zoom, mode
+```
+
+- **No trigonometry for the radar.** The ADS-B API returns each aircraft's
+  bearing (`dir`) and distance (`dst`) from the point you ask about. Bearing
+  divided by 360 times the number of LEDs gives the LED to light.
+- **ISS bearing** is computed on the board from the station's latitude and
+  longitude with the great-circle formula. `math` is enough.
+- **Fetching runs in its own thread.** A TLS handshake takes about 2 seconds
+  on the ESP32-C3, and the sweep would freeze for that long otherwise.
+- **Fallbacks everywhere.** Each data source has a backup, the source that
+  answered last is tried first, and the last known aircraft stay on the
+  ring (fading) while the network is down.
+- **One core, two runtimes.** All logic lives in `pico/core.py`, plain
+  Python with no hardware or network code. It runs unchanged on the board
+  and on a laptop, which is what the tests and the terminal prototype use.
+
+## Hardware
+
+| Part | Needed | Notes |
+|---|---|---|
+| ESP32-C3 board | yes | Tested on Waveshare ESP32-C3-Zero (ring unit) and ESP32-C3 SuperMini (matrix unit). 4 MB flash, WiFi on 2.4 GHz only |
+| WS2812 (NeoPixel) ring, 24 LEDs | yes | Other sizes work, set `N_LEDS` |
+| USB-C cable that carries data | yes | Some "charging" cables do, some do not |
+| 1.3" OLED module with rotary encoder | optional | 128x64, SH1106 or SSD1306, with BACK and CONFIRM buttons (pins labelled CON SDA SCL PSH TRA TRB BAK GND VCC) |
+| WS2812 8x8 matrix plus a second ESP32-C3 | optional | Runs the same code with the `matris` profile |
+| Breadboard and jumper wires | optional | The ESP32-C3-Zero has a single GND pin, so sharing ground needs a breadboard |
+| Diffuser | optional | Baking paper or a frosted lid makes the LEDs glow instead of glare |
+
+A Raspberry Pi Pico 2 W should work too (the core is plain MicroPython), but
+the board code has only been run on ESP32-C3 so far.
+
+**Power:** 24 LEDs at full white draw about 1.4 A and USB gives about 0.5 A.
+Brightness is capped with `MAX_BRIGHTNESS` (0.2 by default), which is
+plenty indoors.
+
+### Wiring the ring unit (ESP32-C3-Zero)
+
+| From | To |
+|---|---|
+| Ring DI (data in, not DO) | GPIO3 |
+| Ring 5V | 5V |
+| Ring GND | GND |
+| OLED VCC | 3V3 (not 5V, or the I2C pull-ups lift the pins to 5 V) |
+| OLED GND | GND |
+| OLED SDA / SCL | GPIO4 / GPIO5 |
+| Encoder push (PSH) | GPIO6 |
+| Encoder TRA / TRB | GPIO7 / GPIO0 |
+| BACK (BAK) | GPIO1 |
+| CONFIRM (CON) | GPIO2 |
+
+The pin names on the ESP32-C3-Zero are printed on the underside only. The
+matrix unit is an ESP32-C3 SuperMini with the matrix DIN on GPIO4 and
+nothing else to wire.
+
+## Getting started
+
+You need Python 3, [`esptool`](https://github.com/espressif/esptool) and
+[`mpremote`](https://docs.micropython.org/en/latest/reference/mpremote.html):
 
 ```bash
-./scripts/till-kortet.sh   # frågar efter WiFi första gången, Ctrl-C stoppar
+pipx install esptool
+pipx install mpremote
 ```
 
-WiFi-uppgifterna hamnar i `pico/secrets.py`, som git ignorerar. `main.py`
-ligger kvar på kortet och startar själv när kortet får ström. Hämtningen går
-i en egen tråd, eftersom TLS tar ca 2 s per anrop på C3:an och ringen annars
-står still under tiden.
-
-MicroPython på en ESP32-C3 (firmware från micropython.org/download,
-`ESP32_GENERIC_C3`, testat med 1.29.0):
+**1. Flash MicroPython** onto the board. Download the `ESP32_GENERIC_C3`
+firmware from [micropython.org](https://micropython.org/download/ESP32_GENERIC_C3/)
+(tested with 1.29.0):
 
 ```bash
 FIRMWARE=~/Downloads/ESP32_GENERIC_C3-20260824-v1.29.0.bin
@@ -96,212 +158,151 @@ esptool --chip esp32c3 erase-flash
 esptool --chip esp32c3 write-flash 0 "$FIRMWARE"
 ```
 
-Koppling på ESP32-C3-Zero: ringens DI till GPIO3, 5V till 5V, GND till GND.
-OLED-modulen med ratt: VCC till 3V3 (inte 5V), GND, SDA till GPIO4, SCL till
-GPIO5, PSH till GPIO6, TRA till GPIO7, TRB till GPIO0, BAK till GPIO1 och
-CON till GPIO2. Skärmen är en SH1106.
+**2. Set your location.** The default is the hackathon venue in Uppsala.
+Create `pico/config_local.py` (git ignores it) with your own coordinates:
 
-Matrisenheten är en egen ESP32-C3 SuperMini som sitter fastlödd på en
-8x8-matris (DIN på GPIO4) och kör samma kod: `./scripts/till-kortet.sh matris`.
-Korten klarar bara 2,4 GHz, så en mobil-hotspot måste stå på 2,4 GHz.
-
-Kör prototypen (bara Pythons standardbibliotek behövs):
-
-```bash
-./terminal/radar.py                                     # live: z = zoom, m = läge, q = avsluta
-./terminal/radar.py --record inspelningar/lordag.jsonl  # spela in samtidigt
-./terminal/radar.py --replay inspelningar/lordag.jsonl  # spela upp utan nät
-./terminal/radar.py --once --mode iss                   # en bild, sedan avsluta
+```python
+PLACE = "Stockholm Central Station"
+LAT = 59.3298746
+LON = 18.0575007
 ```
 
-Kör testerna:
+To look up an address: `./terminal/plats.py "Stockholm Central Station"`
+(uses OpenStreetMap). Or right-click the spot in Google Maps and copy the
+coordinates from the top of the menu.
+
+**3. Copy the code to the board and run it:**
+
+```bash
+./scripts/till-kortet.sh          # ring unit ("till kortet" = to the board)
+./scripts/till-kortet.sh matris   # matrix unit
+```
+
+The first run asks for a WiFi name and password and stores them in
+`pico/secrets.py` (git ignores it, the password is never echoed). Add more
+networks with `./scripts/wifi.sh`; the board joins the first one it can see.
+`main.py` stays on the board and starts by itself on power-up, no laptop
+needed.
+
+**4. Point north.** At startup a dot runs one lap from the LED the code
+thinks is north. Turn the ring until the dim white north dot faces north
+(a phone compass is enough).
+
+The boards only do 2.4 GHz. If you use a phone hotspot, force it to 2.4 GHz
+with WPA2 security.
+
+## Controls
+
+| Control | Does |
+|---|---|
+| BOOT button, short press | Zoom: 25, 50, 75 km (starts at 75) |
+| BOOT button, long press | Switch between radar and ISS |
+| Turn the knob | Select an aircraft, nearest first |
+| Push the knob | Zoom |
+| BACK | Switch between radar and ISS |
+| CONFIRM | Not used yet |
+
+The board's own RGB LED shows status: green for fresh data, red for stale
+data, blue for no WiFi.
+
+[`docs/manual.md`](docs/manual.md) explains how to read the ring and the
+screen and what to do when something goes wrong.
+
+## Configuration
+
+Defaults live in `pico/config.py`. Override anything in
+`pico/config_local.py`, which git ignores and the copy script sends along.
+The most useful settings:
+
+| Setting | Default | What it is |
+|---|---|---|
+| `LAT`, `LON`, `PLACE` | Uppsala | Where the radar stands |
+| `N_LEDS` | 24 | LEDs on the ring |
+| `LED_NORTH` | 0 | The LED that should point north |
+| `CLOCKWISE` | `True` | Do the LED numbers run clockwise seen from above? |
+| `MAX_BRIGHTNESS` | 0.2 | Keeps the current within what USB can give |
+| `ZOOM_KM` | (25, 50, 75) | Zoom steps. 150 km runs out of memory with the screen on |
+| `GRID_SERPENTINE` | `False` | Set if the matrix rows zigzag |
+| `WIFI_TXPOWER` | `None` | Set to 8.5 if WiFi will not connect (common on cheap C3 boards) |
+
+Pins per board live in `pico/boards/`, one file per profile. The copy
+script puts the chosen profile on the board as `board.py`. Add your own
+profile for a different board or wiring.
+
+## Without hardware
+
+The terminal prototype runs the same core and settings and needs nothing
+but the Python standard library:
+
+```bash
+./terminal/radar.py                                      # live: z = zoom, m = mode, q = quit
+./terminal/radar.py --plats "Uppsala Cathedral"          # look up a place first
+./terminal/radar.py --record recordings/today.jsonl      # record while watching
+./terminal/radar.py --replay recordings/today.jsonl      # replay offline
+./terminal/radar.py --once --mode iss                    # one frame, then exit
+```
+
+Check that all data sources answer and list the aircraft in range:
+
+```bash
+LAT=59.3298746 LON=18.0575007 RADIE_KM=25 ./scripts/kolla-api.sh
+```
+
+## Tests
 
 ```bash
 python3 tests/test_core.py
-micropython tests/test_core.py
+micropython tests/test_core.py   # the unix port of MicroPython
 ```
 
-Kärnan är testad på MicroPython 1.30 (unix-porten): alla tester går igenom,
-och ett riktigt API-svar för 150 km (15,5 KB, 23 plan) går att tolka med bara
-128 KB heap. Pico 2 W har 520 KB RAM.
+The core also parses a real 15 KB API response (23 aircraft) within a
+128 KB MicroPython heap.
 
-Inspelningar är JSON-rader med `t`, `km`, `ac` och `iss`, och git ignorerar
-dem. Samma format kan läggas i flash som reserv.
+## Repository layout
 
-## Plats
-
-Lampan vet inte själv var den står. Koordinaterna ställs in en gång, precis
-som norr riktas en gång. Standard är eventlokalen, ABF på S:t Persgatan 22B
-i Uppsala (59.8621567, 17.6421569). Trafikmätningarna nedan gjordes från
-Uppsala centrum (59.858, 17.639), ca 500 m därifrån.
-
-Byt plats utan att räkna fram koordinater själv:
-
-```bash
-./terminal/radar.py --plats                                # frågar var du är
-./terminal/radar.py --plats "Stockholms centralstation"
-./terminal/plats.py "Uppsala domkyrka"                     # bara koordinaterna
+```
+pico/core.py            all logic, runs unchanged on laptop and board
+pico/config.py          location, pins, LEDs, zoom, data sources
+pico/main.py            the board code: WiFi, fetching, LEDs, screen, knob
+pico/oled.py            driver for 128x64 SSD1306 and SH1106 screens
+pico/boards/            one profile per board: ring.py, matris.py (matrix)
+terminal/radar.py       terminal prototype and backup demo
+terminal/plats.py       address to coordinates via OpenStreetMap
+tests/test_core.py      tests, run with python3 and micropython
+scripts/till-kortet.sh  copy the code to a board and run it
+scripts/wifi.sh         add a WiFi network
+scripts/kolla-api.sh    check that the data sources answer
+docs/manual.md          using it: reading the ring, controls, troubleshooting
+docs/notes.md           measurements, data pitfalls, ESP32-C3 lessons
 ```
 
-`plats.py` slår upp adressen hos OpenStreetMap (Nominatim) och skriver ut
-en rad som `LAT=59.8603 LON=17.6337`, som går att klistra in framför andra
-kommandon, till exempel `./scripts/kolla-api.sh`. Utan terminal: högerklicka
-på platsen i Google Maps, så står koordinaterna överst i menyn och kopieras
-med ett klick.
+Code comments and some script names are in Swedish.
 
-- **Ingen automatisk positionering.** IP-baserad plats är för grov och blir
-  fel via mobilens hotspot (operatörens IP kan ligga i en annan stad). GPS
-  via mobilen är onödigt krångel för något som står still.
-- **Full precision** (7 decimaler, ca 1 cm) från OpenStreetMap, ingen
-  avrundning.
-- **Hemadressens koordinater hör inte hemma i repot.** När lampan flyttar
-  hem: lägg `LAT` och `LON` i `pico/config_local.py`, som git ignorerar och
-  som skriver över `config.py`.
+## Data sources
 
-## Datakällor
+All free, no API key, all checked to work with the board's TLS.
 
-Gratis, ingen API-nyckel. Alla testade 2026-09-30 och alla tar TLS 1.2 (det
-Picons TLS klarar).
-
-| Tjänst | Används till | Svar vid test | Villkor |
-|---|---|---|---|
-| [adsb.fi opendata](https://github.com/adsbfi/opendata) | Radar, förstaval | 5-10 KB, 0,13 s | Personligt och icke-kommersiellt, max 1 anrop/s, kreditera adsb.fi med länk |
-| api.adsb.lol | Radar, reserv | 5-10 KB, 0,2-4 s | Samma format (`ac`, `dir`, `dst`), byt bara URL |
-| [wheretheiss.at](https://wheretheiss.at/w/developer) | ISS, förstaval | 308 byte, 1,6 s | Max 350 anrop per 5 min |
-| open-notify | ISS, reserv | 0,4 s | Vanlig http |
-
-Villkoret om kreditering löses med en lapp bredvid lampan: "Flygdata: adsb.fi".
-
-**Hur mycket trafik?** Mätt runt Uppsala centrum en onsdag (antal plan,
-inom parentes hur många av dem som var under 3 000 m). Radierna är de
-nautiska mil vi frågade API:et om:
-
-| Radie | 16:08 | 16:31 |
+| Service | Used for | Terms |
 |---|---|---|
-| 28 km (15 nm) | - | 4 (4) |
-| 46 km (25 nm) | 4 (3) | 7 (7) |
-| 74 km (40 nm) | 7 (3) | 15 (10) |
-| 111 km (60 nm) | 10 (3) | 18 (11) |
+| [adsb.fi open data](https://github.com/adsbfi/opendata) | Aircraft, first choice | Personal and non-commercial use, max 1 request per second, credit adsb.fi with a link |
+| [adsb.lol](https://api.adsb.lol) | Aircraft, backup | Same response format |
+| [wheretheiss.at](https://wheretheiss.at/w/developer) | ISS, first choice | Max 350 requests per 5 minutes |
+| [Open Notify](http://open-notify.org) | ISS, backup | Plain HTTP |
 
-Trafiken svänger mycket på en halvtimme. Vid rusning klumpar sig planen i
-sektorn mot Arlanda (ca 100-190 grader), så då är 25 km rätt zoom. När det
-är lugnt (lördag, kväll) är 75-150 km bättre. Därav zoomknappen. Svaret är
-5-10 KB beroende på antal plan.
+The radar fetches every 4 seconds and the ISS every 10, well within the
+limits. The MIT license below covers this code, not the data: if you show
+the radar in public, put a note next to it saying "Flight data: adsb.fi".
 
-**Fällor i riktig data** (sett 2026-09-30), som Pico-koden måste hantera:
+## Ideas
 
-- **Plan på marken** har `alt_baro: "ground"` (till exempel parkerade plan
-  på Bromma). Visa inte, eller visa mycket svagt.
-- **`alt_baro` kan vara negativ** för plan i luften. Det är tryckhöjd, som
-  blir fel vid högtryck (ett plan på inflygning till Arlanda visade -250 fot
-  men `alt_geom` 450 fot, ca 140 m, och 128 knop). Använd `alt_geom` först.
-- **Anropssignalen kan saknas** eller vara `@@@@@@@@`.
-- **Reserven kan också ligga nere.** adsb.lol gav timeout i 10 s en gång och
-  svarade igen några minuter senare. Picon ska ha kort timeout (ca 5 s) och
-  fortsätta visa senast kända plan, som bleknar om datan blir gammal, i
-  stället för att frysa.
+- Count of people in space right now, one LED each
+  (`http://api.open-notify.org/astros.json`).
+- Aurora mode from NOAA's Kp index: a green glow when there is a chance of
+  northern lights overhead.
+- Sync the selected aircraft from the knob to the matrix unit over ESP-NOW.
+- A voice on CONFIRM that reads out the selected flight.
+- 150 km zoom, which needs leaner parsing to fit in memory.
 
-Kolla att allt svarar (till exempel på lördag morgon innan avfärd):
+## License
 
-```bash
-./scripts/kolla-api.sh
-```
-
-Plats och radie går att ändra per körning:
-
-```bash
-LAT=59.8603 LON=17.6337 RADIE_KM=25 ./scripts/kolla-api.sh
-```
-
-## Hårdvara
-
-Svar från arrangörerna 2026-09-30:
-
-- **Lysdioder:** en slinga, många stora ringar, några små och en 8x8-matris.
-  Antalet ställs in med `N_LEDS` i `pico/config.py`. Matrisen kan visa en
-  riktig 2D-radar (`radar_grid` i kärnan).
-- **Picorna har inte förlödda stift,** men det finns korta stiftlister som
-  passar ESP32-C3. Kärnan är ren Python och fungerar på båda korten.
-- **WiFi:** en ABF-lokal, troligen inte eduroam. De tar kanske med mobilt
-  WiFi.
-- **Molndata är ok:** "Man får nog göra vad man vill så länge man gör något!"
-
-Lödning blir alltså troligen aktuellt på plats: stiftlist på kortet och tre
-sladdar på ringen. Det är ett klassiskt första lödjobb.
-
-**WiFi-reserv:** mobilen som hotspot om lokalens WiFi har inloggningssida.
-Korten klarar bara 2,4 GHz: Settings > Network & internet > Hotspot &
-tethering > Wi-Fi hotspot > Speed & compatibility > 2.4 GHz, säkerhet
-WPA2-Personal.
-
-**Koppling:** tre sladdar. 5V (VBUS), GND och data till valfri GPIO. En knapp
-för zoom och lägesbyte är valfri.
-
-**Inställningar på plats** (`pico/config.py`): `N_LEDS` efter ringens storlek,
-`LED_NORTH` för lysdioden som pekar mot norr och `CLOCKWISE` för vilket håll
-numren går. För matrisen `GRID_SERPENTINE` om den är kopplad i sicksack.
-
-**Ström:** 24 lysdioder på fullt vitt drar ca 1,4 A, USB ger ca 0,5 A.
-Begränsa ljusstyrkan med `MAX_BRIGHTNESS` (0,2 som standard).
-
-**Presentation:**
-
-- Bakplåtspapper eller ett frostat plastlock över lysdioderna gör att de
-  glöder mjukt i stället för att blända.
-- En utskriven kompassros under ringen med N/Ö/S/V samt Arlanda, Stockholm
-  och Gävle utmärkta gör att folk förstår prickarna direkt.
-- Rikta norr en gång med mobilens kompass.
-
-## Robusthet
-
-- Hämta radardata var 4:e sekund och ISS var 10:e sekund, långt under
-  gränserna.
-- Reserv-URL:er. Svarar inte förstavalet byter kortet källa.
-- Hämtningen får aldrig frysa animationen. Gammal data bleknar och svepet
-  blir rött, så det syns när nätet strular.
-- **Inspelat läge:** spela in några minuter riktig trafik (`--record`). Dör
-  nätet i lokalen spelar lampan upp inspelningen, så demon lever.
-- Reserv om all hårdvara strular: terminalprototypen på laptopskärmen är i
-  sig en demo.
-
-## Plan
-
-1. **Klart 2026-09-30:** kärnan, konfigurationen, tester och
-   terminalprototypen.
-2. **Före lördag (valfritt):** spela in lite trafik som reserv.
-3. **Lördag:** löd stiftlist och sladdar, skriv skalet på kortet (WiFi,
-   hämtning, `neopixel`, knapp), ställ in ringen i `config.py`, bygg
-   kompassrosen och visa upp.
-
-## Fler rymdlägen (idéer)
-
-Alla gratis och kontrollerade 2026-09-30:
-
-- **ISS i sol eller skugga:** redan med. Ringen är vit när ISS är i solljus
-  och blå i jordens skugga (`visibility` från wheretheiss.at).
-- **Hur många som är i rymden just nu:** `http://api.open-notify.org/astros.json`
-  (12 personer på ISS och Tiangong). En lysdiod per person.
-- **Norrskensläge:** NOAA:s Kp-index,
-  `https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json`
-  (4,6 KB). Grön glöd när det finns chans till norrsken över Uppsala, grovt
-  från Kp 4-5.
-
-## Parkerade idéer
-
-Idéer som vägdes mot varandra innan Sky Radar valdes.
-
-- **Hemliga regeln (Jev):** maskinen har en hemlig regel ("handlar om något
-  man kan äta"). Man skriver vad som helst, ringen lyser grönt eller rött med
-  ljusstyrka efter sannolikhet, och man ska lista ut regeln. Bästa idén för
-  TypeSafes Jev (typade beslut på ca 100 ms, sannolikheter, max 255 val per
-  fråga). Parkerad för att den är mindre fysisk och bygger på en molnmodell.
-- **Gissa ordet (Jev):** beskriv ett hemligt ord, Jev gissar bland 255 ord,
-  ringen visar hur varmt det är.
-- **Pong mot Jev:** nej. En perfekt pong-AI är en if-sats, Jev är dålig på
-  siffror och har 70-500 ms latens.
-- **Chaos-knappen:** fysisk chaos engineering mot ett Kubernetes-kluster.
-  För nördig för publiken.
-- **Världens minsta AI:** llama2.c med stories260K (ca 1 MB) på en Pico 2,
-  det finns en port för RP2040. Mest ett partytrick.
-- **LED-pong, Smittan (ESP-NOW-svärm med lysdioder), stämningslampa:**
-  roliga men antingen tunna eller logistiskt tunga.
+[MIT](LICENSE). Flight data from [adsb.fi](https://adsb.fi).

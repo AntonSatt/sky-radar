@@ -4,5 +4,6 @@ pico/secrets.py
 
 # Inspelad flygdata, skapas lokalt med --record
 inspelningar/
+recordings/
 
 __pycache__/
