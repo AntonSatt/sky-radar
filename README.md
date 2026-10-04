@@ -18,6 +18,8 @@ it grew a screen and a knob and was demoed as **Sky Deck**.
 </p>
 <p align="center"><sub>Live at the hackathon: the ring with real traffic and its radar sweep, and the knob stepping through the aircraft in range.</sub></p>
 
+**[Try the interactive deck and read the manual](https://antonsatt.github.io/sky-radar/)**
+
 ## What it does
 
 **Radar mode**
@@ -207,7 +209,8 @@ with WPA2 security.
 The board's own RGB LED shows status: green for fresh data, red for stale
 data, blue for no WiFi.
 
-[`docs/manual.md`](docs/manual.md) explains how to read the ring and the
+The [manual](https://antonsatt.github.io/sky-radar/) (also in
+[`docs/manual.md`](docs/manual.md)) explains how to read the ring and the
 screen and what to do when something goes wrong.
 
 ## Configuration
@@ -274,7 +277,8 @@ tests/test_core.py      tests, run with python3 and micropython
 scripts/till-kortet.sh  copy the code to a board and run it
 scripts/wifi.sh         add a WiFi network
 scripts/kolla-api.sh    check that the data sources answer
-docs/manual.md          using it: reading the ring, controls, troubleshooting
+docs/index.html         the manual as a web page (GitHub Pages)
+docs/manual.md          the same manual in Markdown
 docs/notes.md           measurements, data pitfalls, ESP32-C3 lessons
 ```
 

@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sky Radar</title>
+<meta name="description" content="A ring of 24 LEDs that points out every aircraft around you, and points at the ISS. MicroPython on an ESP32-C3, built at the Build 4 Cyberdeck hackathon in Uppsala.">
+<meta property="og:title" content="Sky Radar">
+<meta property="og:description" content="A ring of 24 LEDs that points out every aircraft around you, and points at the ISS. MicroPython on an ESP32-C3.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://antonsatt.github.io/sky-radar/">
+<meta property="og:image" content="https://antonsatt.github.io/sky-radar/images/sky-deck-screen.jpg">
+<meta name="theme-color" content="#0e2b6b">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='12' fill='none' stroke='%23222' stroke-width='5'/%3E%3Ccircle cx='16' cy='4' r='3' fill='%23fff'/%3E%3Ccircle cx='27' cy='19' r='3' fill='%23ff6400'/%3E%3Ccircle cx='8' cy='25' r='3' fill='%232fd24a'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&family=VT323&display=swap">
+<style>
+/* The page is a circuit board. Each section is labelled with a silkscreen
+   designator (D1-D24 = the ring's LEDs, SW = buttons, U2 = the screen,
+   TP = test points, J = connectors), one column with a "deck" panel on top. */
+:root {
+  color-scheme: dark;
+  --board: #0e2b6b;
+  --board-deep: #091f52;
+  --panel: #14388a;
+  --silk: #eef2fb;
+  --silk-dim: #b3c0e4;
+  --pad: #dcb860;
+  --oled-bg: #03050b;
+  --oled: #8fdcff;
+  --led-off: #232a38;
+  --ring: #07080c;
+  --focus: #ffd76a;
+  --font-display: "Chakra Petch", "Arial Narrow", Arial, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "DejaVu Sans Mono", monospace;
+  --font-oled: "VT323", ui-monospace, "DejaVu Sans Mono", monospace;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background-color: var(--board);
+  background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.06) 1px, transparent 1.5px);
+  background-size: 22px 22px;
+  color: var(--silk);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  line-height: 1.6;
+  padding-inline: 16px;
+  padding-block: 32px 48px;
+}
+.wrap { max-width: 880px; margin: 0 auto; display: grid; gap: 56px; }
+img { max-width: 100%; height: auto; display: block; }
+
+a { color: var(--pad); }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+
+.silk {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--silk-dim);
+}
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; line-height: 1.15; margin: 0; }
+h1 { font-size: clamp(2.6rem, 9vw, 4.6rem); letter-spacing: 0.04em; }
+h2 { font-size: clamp(1.5rem, 4vw, 2rem); }
+h3 { font-size: 1.1rem; }
+p { margin: 0; max-width: 65ch; }
+.lead { font-size: 1.15rem; color: var(--silk); }
+.muted { color: var(--silk-dim); }
+
+/* --- Hero --- */
+header { display: grid; gap: 14px; }
+.links { display: flex; flex-wrap: wrap; gap: 10px; }
+.links a {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--board-deep);
+  background: var(--pad);
+  border-radius: 999px;
+  padding: 7px 14px;
+}
+.links a.ghost { background: transparent; color: var(--pad); box-shadow: inset 0 0 0 1px var(--pad); }
+.links a:hover { filter: brightness(1.1); }
+
+.deck {
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  padding: 20px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: center;
+  position: relative;
+  margin-top: 8px;
+}
+.deck::before, .deck::after {
+  content: "";
+  position: absolute;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  border: 3px solid var(--pad);
+  top: 10px;
+}
+.deck::before { left: 10px; }
+.deck::after { right: 10px; }
+.ring-box { display: grid; justify-items: center; gap: 8px; min-width: 0; }
+#ring { width: min(100%, 320px); aspect-ratio: 1; max-width: 100%; display: block; }
+.side { display: grid; gap: 16px; min-width: 0; }
+.oled-frame {
+  background: #0b0d14;
+  border-radius: 6px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+#oled {
+  margin: 0;
+  background: var(--oled-bg);
+  color: var(--oled);
+  font-family: var(--font-oled);
+  font-size: clamp(1.05rem, 3.6vw, 1.45rem);
+  line-height: 1.05;
+  padding: 8px 10px;
+  white-space: pre;
+  overflow-x: auto;
+  text-shadow: 0 0 6px rgba(143, 220, 255, 0.45);
+  border-radius: 3px;
+}
+#oled .inv { background: var(--oled); color: var(--oled-bg); text-shadow: none; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; }
+.tact {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--silk);
+  background: var(--board-deep);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+.tact::before {
+  content: "";
+  width: 16px; height: 16px;
+  border-radius: 3px;
+  background: #e9e6dc;
+  box-shadow: inset 0 -3px 0 #b9b4a6, 0 0 0 3px #9aa3b5;
+  flex: none;
+}
+.tact.knob::before { border-radius: 50%; background: #1a1a1a; box-shadow: inset 0 0 0 2px #555, 0 0 0 3px #9aa3b5; }
+.tact:active { transform: translateY(1px); }
+.tact:hover { border-color: var(--pad); }
+.hint { font-size: 0.85rem; color: var(--silk-dim); }
+
+/* --- Sections --- */
+section { display: grid; gap: 16px; }
+.sec-head { display: grid; gap: 4px; border-top: 1px dashed rgba(255, 255, 255, 0.25); padding-top: 18px; }
+
+.figs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.figs figure { margin: 0; display: grid; gap: 8px; }
+.figs img { width: 100%; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.14); background: var(--board-deep); }
+.figs figcaption { font-size: 0.85rem; color: var(--silk-dim); }
+
+ol.steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; counter-reset: step; }
+ol.steps li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 2.4rem minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+ol.steps li::before {
+  content: counter(step);
+  font-family: var(--font-display);
+  font-weight: 700;
+  width: 2.4rem; height: 2.4rem;
+  border-radius: 50%;
+  border: 3px solid var(--pad);
+  display: grid; place-items: center;
+  color: var(--pad);
+}
+ol.steps strong { display: block; }
+
+.legend { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.legend li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; align-items: center; }
+.dot { width: 18px; height: 18px; border-radius: 4px; justify-self: center; }
+.dot.north { background: #8d8d8d; box-shadow: 0 0 8px rgba(255, 255, 255, 0.35); }
+.dot.sweep { background: #2fd24a; box-shadow: 0 0 10px #2fd24a; }
+.dot.stale { background: #e0322a; box-shadow: 0 0 10px #e0322a; }
+.dot.plane { background: linear-gradient(135deg, #ff2a00, #ffd800, #00a0ff); }
+.dot.target { background: #fff; box-shadow: 0 0 12px #fff; animation: blink 0.5s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0.15; } }
+
+.altscale { display: grid; gap: 6px; }
+.altbar {
+  height: 18px;
+  border-radius: 9px;
+  background: linear-gradient(90deg,
+    rgb(255,0,0) 0%, rgb(255,100,0) 8.7%, rgb(255,220,0) 26.1%,
+    rgb(0,220,120) 52.2%, rgb(0,160,255) 78.3%, rgb(0,40,255) 100%);
+}
+.altlabels { position: relative; height: 2.6rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--silk-dim); font-variant-numeric: tabular-nums; }
+.altlabels span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+.altlabels span:first-child { transform: none; }
+.altlabels span:last-child { transform: translateX(-100%); }
+.altlabels .low { top: 1.3rem; }
+.altends { display: flex; justify-content: space-between; gap: 12px; font-size: 0.85rem; color: var(--silk-dim); }
+
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.95rem; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.14); vertical-align: top; }
+th { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--silk-dim); font-weight: 600; }
+td code, p code, li code, dd code, summary code { font-family: var(--font-mono); font-size: 0.88em; color: var(--pad); }
+
+.screen-wrap { display: grid; grid-template-columns: minmax(0, 260px) minmax(0, 1fr); gap: 24px; align-items: start; }
+.screen-wrap img { border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.14); }
+dl.screen { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 18px; margin: 0; }
+dl.screen dt { white-space: pre; font-family: var(--font-oled); font-size: 1.35rem; color: var(--oled); line-height: 1.2; }
+dl.screen dd { margin: 0; }
+
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.card {
+  background: var(--board-deep);
+  border-radius: 10px;
+  padding: 16px;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.tp { display: grid; gap: 12px; }
+.tp details { background: var(--board-deep); border-radius: 10px; padding: 12px 16px; }
+.tp summary { cursor: pointer; font-weight: 600; display: flex; gap: 10px; align-items: baseline; }
+.tp summary .silk { flex: none; }
+.tp details p { margin-top: 8px; }
+
+details.ref { background: var(--board-deep); border-radius: 10px; padding: 14px 16px; }
+details.ref > summary { cursor: pointer; font-family: var(--font-display); font-size: 1.15rem; font-weight: 700; }
+details.ref[open] > summary { margin-bottom: 12px; }
+pre.cmd {
+  margin: 0;
+  background: var(--oled-bg);
+  color: var(--silk);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  padding: 12px 14px;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+pre.cmd .c { color: var(--silk-dim); }
+
+footer { border-top: 1px dashed rgba(255, 255, 255, 0.25); padding-top: 18px; display: grid; gap: 6px; }
+
+@media (max-width: 680px) {
+  .deck { grid-template-columns: minmax(0, 1fr); }
+  .two { grid-template-columns: minmax(0, 1fr); }
+  .figs { grid-template-columns: minmax(0, 1fr); }
+  .screen-wrap { grid-template-columns: minmax(0, 1fr); }
+  .screen-wrap img { max-width: 320px; }
+  dl.screen { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  dl.screen dd { margin-bottom: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot.target { animation: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <span class="silk">Build 4 Cyberdeck · Uppsala · 2026-10-03</span>
+    <h1>SKY RADAR</h1>
+    <p class="lead">A ring of 24 LEDs that points out every aircraft around you, a screen that tells you which one it is, and a matrix that draws the radar picture. One press and the ring points at the International Space Station instead. Here is how to start it, read it and fix it when something acts up.</p>
+    <nav class="links" aria-label="Project links">
+      <a href="https://github.com/AntonSatt/sky-radar">Source on GitHub</a>
+      <a class="ghost" href="https://github.com/AntonSatt/sky-radar#getting-started">Build your own</a>
+      <a class="ghost" href="https://github.com/AntonSatt/sky-radar/blob/main/docs/notes.md">Engineering notes</a>
+    </nav>
+
+    <div class="deck" aria-label="Interactive model of the deck">
+      <div class="ring-box">
+        <canvas id="ring" width="320" height="320" role="img" aria-label="The ring: 24 LEDs, a dim white dot at north, a green sweep and coloured dots for the aircraft"></canvas>
+        <span class="silk">D1-D24 · the ring</span>
+      </div>
+      <div class="side">
+        <div class="oled-frame">
+          <pre id="oled" aria-live="polite"></pre>
+        </div>
+        <div class="controls">
+          <button class="tact knob" id="btn-turn" type="button">Turn knob</button>
+          <button class="tact knob" id="btn-push" type="button">Push knob</button>
+          <button class="tact" id="btn-back" type="button">Back</button>
+        </div>
+        <p class="hint">Try the controls. The aircraft are real, seen from the hackathon venue in Uppsala. ARN is Stockholm Arlanda airport.</p>
+      </div>
+    </div>
+  </header>
+
+  <section aria-labelledby="h-live">
+    <div class="sec-head">
+      <span class="silk">CAM1 · the real thing</span>
+      <h2 id="h-live">Live at the hackathon</h2>
+    </div>
+    <div class="figs">
+      <figure>
+        <img src="images/sky-radar-ring.gif" width="400" height="545"
+             alt="A 24-LED ring around a glass of water on a breadboard, wired to an ESP32-C3. A few LEDs glow white and orange for aircraft and a green sweep passes along the bottom of the ring.">
+        <figcaption>The ring with live traffic and the green sweep. The glass of water is the stand.</figcaption>
+      </figure>
+      <figure>
+        <img src="images/sky-deck-knob.gif" width="400" height="348" loading="lazy"
+             alt="A thumb turns the knob on the OLED module and the screen steps through aircraft in range: DLH2PM, FIN927 and SEGEE.">
+        <figcaption>Turning the knob steps through the aircraft in range.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-start">
+    <div class="sec-head">
+      <span class="silk">J1 · power and start</span>
+      <h2 id="h-start">Start it</h2>
+    </div>
+    <ol class="steps">
+      <li><div><strong>Turn on WiFi on 2.4 GHz.</strong> The ESP32-C3 cannot see 5 GHz networks. On an Android hotspot: Settings › Network &amp; internet › Hotspot &amp; tethering › Wi-Fi hotspot › Speed &amp; compatibility › 2.4 GHz. Turning off "Turn off hotspot automatically" on the same page helps too.</div></li>
+      <li><div><strong>Power the units.</strong> One USB cable per board. A phone charger, power bank or laptop all work. The code lives on the board, so no laptop is needed.</div></li>
+      <li><div><strong>Watch the boot.</strong> A green dot runs one lap round the ring, starting from north. Then a blue dot spins while the board looks for WiFi, and the screen prints <code>&gt; LINK OK</code> and <code>&gt; SCAN ADS-B</code>. Aircraft show up after about ten seconds.</div></li>
+      <li><div><strong>Point north.</strong> Turn the ring until the dim white dot faces north. A phone compass is enough.</div></li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="h-ring">
+    <div class="sec-head">
+      <span class="silk">D1-D24 · the ring</span>
+      <h2 id="h-ring">Read the ring</h2>
+    </div>
+    <p>The ring is a compass. Every aircraft within range becomes a dot in the direction the plane actually is, seen from where the radar stands.</p>
+    <ul class="legend">
+      <li><span class="dot north" aria-hidden="true"></span><span><strong>Dim white dot:</strong> north. Always on.</span></li>
+      <li><span class="dot sweep" aria-hidden="true"></span><span><strong>Green sweep:</strong> the radar is running, one lap every 3 seconds. Aircraft flare up as the sweep passes them.</span></li>
+      <li><span class="dot stale" aria-hidden="true"></span><span><strong>Red sweep:</strong> no fresh data for over 20 seconds. The dots fade until the network is back.</span></li>
+      <li><span class="dot plane" aria-hidden="true"></span><span><strong>Coloured dot:</strong> an aircraft. The colour is its altitude, see the scale below. A brighter dot is closer.</span></li>
+      <li><span class="dot target" aria-hidden="true"></span><span><strong>Dot blinking white:</strong> the aircraft shown on the screen right now.</span></li>
+    </ul>
+    <div class="altscale" aria-label="Altitude scale: red is low, blue is high">
+      <span class="silk">Altitude in metres</span>
+      <div class="altbar"></div>
+      <div class="altlabels">
+        <span style="left:0">0</span>
+        <span class="low" style="left:8.7%">1,000</span>
+        <span style="left:26.1%">3,000</span>
+        <span class="low" style="left:52.2%">6,000</span>
+        <span style="left:78.3%">9,000</span>
+        <span class="low" style="left:100%">11,500</span>
+      </div>
+      <div class="altends"><span>Take-off and landing</span><span>Cruising</span></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-controls">
+    <div class="sec-head">
+      <span class="silk">SW1-SW5 · the controls</span>
+      <h2 id="h-controls">Controls</h2>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Control</th><th>Where</th><th>Does</th></tr></thead>
+        <tbody>
+          <tr><td>Turn the knob</td><td>Screen module</td><td>Selects an aircraft, nearest first. Its dot blinks white on the ring.</td></tr>
+          <tr><td>Push the knob</td><td>Screen module</td><td>Zoom: 25, 50 or 75 km. Starts at 75.</td></tr>
+          <tr><td>BACK</td><td>Screen module</td><td>Switches between radar and ISS.</td></tr>
+          <tr><td>CONFIRM</td><td>Screen module</td><td>Free. Saved for a voice that reads out the flight.</td></tr>
+          <tr><td>BOOT</td><td>Each board</td><td>Short press changes zoom, long press switches between radar and ISS.</td></tr>
+          <tr><td>RESET</td><td>Each board</td><td>Restarts the board. Fixes most things.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted">The board's own RGB LED is green for fresh data, red for stale data and blue for no WiFi.</p>
+  </section>
+
+  <section aria-labelledby="h-screen">
+    <div class="sec-head">
+      <span class="silk">U2 · the screen</span>
+      <h2 id="h-screen">The screen</h2>
+    </div>
+    <div class="screen-wrap">
+      <img src="images/sky-deck-screen.jpg" width="900" height="1195" loading="lazy"
+           alt="Photo of the OLED module showing the radar screen with flight CCA911.">
+      <dl class="screen">
+        <dt>RNG 75km  1/7</dt><dd>The range, and which aircraft of how many in range is shown.</dd>
+        <dt>&gt; CCA911</dt><dd>The callsign. CCA is Air China. Look it up on Flightradar24 to see where it is going.</dd>
+        <dt>ALT 739 m</dt><dd>Altitude in metres. A question mark means the aircraft sends no altitude.</dd>
+        <dt>DST 22.6 km</dt><dd>Distance from the radar.</dd>
+        <dt>BRG 116 ESE</dt><dd>Bearing in degrees from north, and the compass point (ESE is east-southeast).</dd>
+        <dt>LINK OK</dt><dd>The data is fresh. <code>LINK LOST 34s</code> means nothing new for 34 seconds.</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-more">
+    <div class="sec-head">
+      <span class="silk">Two more modes</span>
+      <h2 id="h-more">ISS and the matrix</h2>
+    </div>
+    <div class="two">
+      <div class="card">
+        <span class="silk">BACK · ISS mode</span>
+        <h3>The space station</h3>
+        <p>The ring points at the ISS. It circles the Earth in about 90 minutes, so over an afternoon the dot wanders round the ring. White means the station is in sunlight, blue that it is in the Earth's shadow. When it is above the horizon, within about 2,250 km, the whole ring pulses and the screen says <code>** OVERHEAD **</code>.</p>
+      </div>
+      <div class="card">
+        <span class="silk">D25-D88 · the matrix</span>
+        <h3>The radar picture</h3>
+        <p>The 8x8 matrix is a separate unit with its own board running the same code. The centre is the radar, the top edge is north and the edges are the current range, so here you see distance as well as direction. Turn it so the white pixel at startup ends up top left. The matrix does not know which aircraft is selected on the screen.</p>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-fix">
+    <div class="sec-head">
+      <span class="silk">TP1-TP9 · test points</span>
+      <h2 id="h-fix">When something acts up</h2>
+    </div>
+    <div class="tp">
+      <details><summary><span class="silk">TP1</span>The ring keeps spinning blue</summary>
+        <p>The board cannot find a WiFi network it knows. Check that the network is on and on 2.4 GHz; some phone hotspots switch back to 5 GHz by themselves. The board retries every ten seconds, no restart needed. If a cheap board never connects, try <code>WIFI_TXPOWER = 8.5</code>.</p></details>
+      <details><summary><span class="silk">TP2</span>The sweep is red and the dots fade</summary>
+        <p>The network is down or the data source is not answering, the same as <code>LINK LOST</code> on the screen. The board switches to the backup source by itself.</p></details>
+      <details><summary><span class="silk">TP3</span>The screen freezes or shows noise</summary>
+        <p>Press RESET. If it keeps happening, reseat the SDA and SCL wires; they work loose when the module moves. Noise on most of the screen with a single line of text means the wrong driver: set <code>OLED_KIND = "sh1106"</code>.</p></details>
+      <details><summary><span class="silk">TP4</span>The ring stays dark</summary>
+        <p>Unplug USB and check the three wires: data to the ring's DI (not DO), 5V and GND. Wire colours vary between makers, so go by the labels printed on the ring.</p></details>
+      <details><summary><span class="silk">TP5</span>Everything turns off after a while</summary>
+        <p>Many power banks switch off when the current draw is low, and the radar draws very little. Use a phone charger instead.</p></details>
+      <details><summary><span class="silk">TP6</span>No aircraft at all</summary>
+        <p>At 25 km it is often empty when traffic is quiet. Push the knob until the screen says <code>RNG 75km</code>.</p></details>
+      <details><summary><span class="silk">TP7</span>The dots point the wrong way</summary>
+        <p>The white north dot is not facing north: turn the ring with a phone compass. If the dots move the wrong way as aircraft fly past, the ring is upside down or numbered the other way. Flip it LEDs up, or set <code>CLOCKWISE = False</code>.</p></details>
+      <details><summary><span class="silk">TP8</span>The knob goes backwards or skips clicks</summary>
+        <p>Swap <code>ENC_A</code> and <code>ENC_B</code> in the board profile, or try <code>ENC_STEPS = 2</code>.</p></details>
+      <details><summary><span class="silk">TP9</span>The matrix picture is mirrored or scrambled</summary>
+        <p>At startup a dot walks through the pixels in wiring order from the white pixel 0. Turn the matrix so pixel 0 is top left. If the dot zigzags, set <code>GRID_SERPENTINE = True</code>.</p></details>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-build">
+    <div class="sec-head">
+      <span class="silk">J2 · for builders</span>
+      <h2 id="h-build">Build your own</h2>
+    </div>
+    <p>You need an ESP32-C3 board, a 24-LED WS2812 ring and a USB-C cable. The screen module and the matrix are optional. The <a href="https://github.com/AntonSatt/sky-radar#hardware">parts list</a>, flashing MicroPython and setting your location are in the README.</p>
+    <details class="ref">
+      <summary>Wiring the ring unit (ESP32-C3-Zero)</summary>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Part</th><th>Pin</th></tr></thead>
+          <tbody>
+            <tr><td>Ring DI (data in, not DO)</td><td>GPIO3</td></tr>
+            <tr><td>Ring 5V</td><td>5V</td></tr>
+            <tr><td>Ring GND</td><td>GND</td></tr>
+            <tr><td>Screen VCC</td><td>3V3, not 5V</td></tr>
+            <tr><td>Screen GND</td><td>GND, shared with the ring on a breadboard</td></tr>
+            <tr><td>SDA / SCL</td><td>GPIO4 / GPIO5</td></tr>
+            <tr><td>PSH (push the knob)</td><td>GPIO6</td></tr>
+            <tr><td>TRA / TRB (the knob)</td><td>GPIO7 / GPIO0</td></tr>
+            <tr><td>BAK</td><td>GPIO1</td></tr>
+            <tr><td>CON</td><td>GPIO2</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted" style="margin-top:10px">The matrix unit is an ESP32-C3 SuperMini soldered to the matrix, with DIN on GPIO4. Nothing else to wire.</p>
+    </details>
+    <details class="ref">
+      <summary>Commands on the computer</summary>
+<pre class="cmd">git clone https://github.com/AntonSatt/sky-radar.git
+cd sky-radar
+./scripts/till-kortet.sh          <span class="c"># copy the code to the ring unit and run it</span>
+./scripts/till-kortet.sh matris   <span class="c"># the same for the matrix unit</span>
+./scripts/wifi.sh                 <span class="c"># add another WiFi network</span>
+./scripts/kolla-api.sh            <span class="c"># do the data sources answer?</span>
+./terminal/radar.py               <span class="c"># the radar in the terminal, no hardware</span>
+python3 tests/test_core.py        <span class="c"># the tests</span></pre>
+    </details>
+  </section>
+
+  <footer>
+    <span class="silk">Flight data: <a href="https://adsb.fi">adsb.fi</a> · ISS: <a href="https://wheretheiss.at">wheretheiss.at</a></span>
+    <p class="muted">Built at Byte Me's Build 4 Cyberdeck hackathon in Uppsala, 2026-10-03. Everything fits in 4 MB, as the challenge required. MIT licensed, <a href="https://github.com/AntonSatt/sky-radar">source on GitHub</a>.</p>
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var ALT = [[0, [255, 0, 0]], [1000, [255, 100, 0]], [3000, [255, 220, 0]],
+             [6000, [0, 220, 120]], [9000, [0, 160, 255]], [11500, [0, 40, 255]]];
+  var COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+                 "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+  // Real aircraft seen from the venue on 2026-10-03, nearest first
+  var PLANES = [
+    { cs: "CCA911", alt: 739, dst: 22.6, brg: 116 },
+    { cs: "POL5410", alt: 400, dst: 26.4, brg: 157 },
+    { cs: "RYR637V", alt: 1830, dst: 36.5, brg: 174 },
+    { cs: "SAS7890", alt: 1900, dst: 39.4, brg: 135 },
+    { cs: "FIN91Z", alt: 12680, dst: 52.7, brg: 113 }
+  ];
+  var ISS = { dst: 5234, brg: 87, sunlit: true };
+  var ZOOMS = [25, 50, 75];
+  var N = 24;
+
+  var state = { zoom: 2, target: 0, mode: "radar", auto: true };
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function mix(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
+  function scale(c, f) { return [c[0] * f, c[1] * f, c[2] * f]; }
+  function altColor(alt) {
+    if (alt <= ALT[0][0]) return ALT[0][1];
+    for (var i = 1; i < ALT.length; i++) {
+      if (alt <= ALT[i][0]) {
+        var lo = ALT[i - 1];
+        return mix(lo[1], ALT[i][1], (alt - lo[0]) / (ALT[i][0] - lo[0]));
+      }
+    }
+    return ALT[ALT.length - 1][1];
+  }
+  function ledIndex(brg) { return Math.round(((brg % 360) + 360) % 360 * N / 360) % N; }
+  function compass(brg) { return COMPASS[Math.round(brg / 22.5) % 16]; }
+  function inside() { return PLANES.filter(function (p) { return p.dst <= ZOOMS[state.zoom]; }); }
+  function pad3(n) { return ("00" + Math.round(n)).slice(-3); }
+
+  // --- The screen ---
+  var oled = document.getElementById("oled");
+  function oledLines() {
+    if (state.mode === "iss") {
+      return ["SKY DECK    ISS", "", "DST " + ISS.dst + " km", "BRG " + pad3(ISS.brg) + " " + compass(ISS.brg),
+              ISS.sunlit ? "SUNLIT" : "SHADOW", "", "", "LINK OK"];
+    }
+    var list = inside();
+    var head = "RNG " + ZOOMS[state.zoom] + "km";
+    if (!list.length) return ["SKY DECK  RADAR", head, "", "NO TARGETS", "", "", "", "LINK OK"];
+    var t = state.target % list.length;
+    var p = list[t];
+    return ["SKY DECK  RADAR", head + "  " + (t + 1) + "/" + list.length, "", "> " + p.cs,
+            "ALT " + p.alt + " m", "DST " + p.dst.toFixed(1) + " km",
+            "BRG " + pad3(p.brg) + " " + compass(p.brg), "LINK OK"];
+  }
+  function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  function renderOled() {
+    var lines = oledLines();
+    var first = (lines[0] + "                ").slice(0, 16);
+    oled.innerHTML = '<span class="inv">' + esc(first) + "</span>\n" + lines.slice(1).map(esc).join("\n");
+  }
+
+  // --- The ring ---
+  var canvas = document.getElementById("ring");
+  var ctx = canvas.getContext("2d");
+  var size = 320;
+  function resize() {
+    var css = canvas.getBoundingClientRect().width || 320;
+    var dpr = window.devicePixelRatio || 1;
+    size = css;
+    canvas.width = Math.round(css * dpr);
+    canvas.height = Math.round(css * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function frame(t) {
+    var colors = [];
+    var level = [];
+    for (var i = 0; i < N; i++) { colors.push(null); level.push(0); }
+    var list = inside();
+    if (state.mode === "radar") {
+      var range = ZOOMS[state.zoom];
+      var sweep = reduce ? 200 : (t / 1000 * 120) % 360;
+      list.forEach(function (p) {
+        var near = 1 - 0.7 * p.dst / range;
+        var behind = ((sweep - p.brg) % 360 + 360) % 360;
+        var glow = reduce ? 1 : 0.35 + 0.65 * Math.pow(1 - behind / 360, 2);
+        var b = near * glow;
+        var k = ledIndex(p.brg);
+        if (b > level[k]) { level[k] = b; colors[k] = scale(altColor(p.alt), b); }
+      });
+      if (!colors[0]) colors[0] = [40, 40, 40];
+      [[0, 1], [1, 0.4], [2, 0.15]].forEach(function (s) {
+        var k = ledIndex(sweep - s[0] * 15);
+        if (!level[k]) colors[k] = scale([0, 60, 0], s[1]);
+      });
+      if (list.length && (reduce || Math.floor(t / 250) % 2 === 0)) {
+        colors[ledIndex(list[state.target % list.length].brg)] = [255, 255, 255];
+      }
+    } else {
+      var k = ledIndex(ISS.brg);
+      var c = ISS.sunlit ? [255, 255, 255] : [40, 60, 255];
+      colors[k] = c;
+      colors[(k + 1) % N] = scale(c, 0.25);
+      colors[(k + N - 1) % N] = scale(c, 0.25);
+      if (!colors[0]) colors[0] = [40, 40, 40];
+    }
+    return colors;
+  }
+
+  // LEDs look brighter in real life than on a screen: lift the dim colours
+  function shown(c) {
+    return "rgb(" + c.map(function (v) { return Math.round(255 * Math.sqrt(Math.max(0, v) / 255)); }).join(",") + ")";
+  }
+
+  function draw(t) {
+    var cx = size / 2, cy = size / 2;
+    var R = size * 0.38;
+    ctx.clearRect(0, 0, size, size);
+    ctx.lineWidth = size * 0.13;
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--ring").trim() || "#07080c";
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+
+    ctx.fillStyle = "rgba(238,242,251,0.85)";
+    ctx.font = "600 " + Math.round(size * 0.045) + "px 'IBM Plex Mono', monospace";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("N", cx, cy - R + size * 0.12);
+    ctx.fillText("ARN", cx + R * 0.34, cy + R * 0.5);
+
+    var colors = frame(t);
+    var s = size * 0.06;
+    for (var i = 0; i < N; i++) {
+      var a = i * Math.PI * 2 / N;
+      var x = cx + R * Math.sin(a), y = cy - R * Math.cos(a);
+      ctx.save();
+      ctx.translate(x, y); ctx.rotate(a);
+      ctx.fillStyle = "#d9d6cc";
+      ctx.fillRect(-s / 2, -s / 2, s, s);
+      var c = colors[i];
+      ctx.beginPath(); ctx.arc(0, 0, s * 0.34, 0, Math.PI * 2);
+      if (c) {
+        var col = shown(c);
+        ctx.shadowColor = col;
+        ctx.shadowBlur = size * 0.06;
+        ctx.fillStyle = col;
+      } else {
+        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--led-off").trim() || "#232a38";
+      }
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  var lastTurn = 0;
+  function loop(t) {
+    if (state.auto && t - lastTurn > 4000) {
+      lastTurn = t;
+      if (state.mode === "radar") {
+        var n = inside().length || 1;
+        state.target = (state.target + 1) % n;
+        renderOled();
+      }
+    }
+    draw(t);
+    requestAnimationFrame(loop);
+  }
+
+  function stopAuto() { state.auto = false; }
+  document.getElementById("btn-turn").addEventListener("click", function () {
+    stopAuto();
+    if (state.mode !== "radar") return;
+    var n = inside().length || 1;
+    state.target = (state.target + 1) % n;
+    renderOled(); if (reduce) draw(0);
+  });
+  document.getElementById("btn-push").addEventListener("click", function () {
+    stopAuto();
+    state.zoom = (state.zoom + 1) % ZOOMS.length;
+    var n = inside().length || 1;
+    state.target = state.target % n;
+    renderOled(); if (reduce) draw(0);
+  });
+  document.getElementById("btn-back").addEventListener("click", function () {
+    stopAuto();
+    state.mode = state.mode === "radar" ? "iss" : "radar";
+    renderOled(); if (reduce) draw(0);
+  });
+
+  resize();
+  renderOled();
+  draw(0);
+  window.addEventListener("resize", function () { resize(); draw(performance.now()); });
+  if (!reduce) requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
